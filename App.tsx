@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, CheckCircle2, Loader2, Search, TrendingUp, Clock, BadgeCheck, AlertCircle } from 'lucide-react';
+import { Users, CheckCircle2, Loader2, Search, TrendingUp, Clock, BadgeCheck, AlertCircle, ShoppingBag, X, ArrowRight, UserCheck, ChevronRight } from 'lucide-react';
 import { API_URL } from './constants';
 
 export default function App() {
@@ -10,13 +10,18 @@ export default function App() {
   const [customers, setCustomers] = useState<any[]>([]);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [stats, setStats] = useState({ today: 0, total: 0, pending: 0 });
+  
+  const [successData, setSuccessData] = useState<{
+    eventType: string;
+    amount: string;
+    customerName: string;
+  } | null>(null);
 
-  // Basic check to see if URL is configured
   const isDemoMode = !API_URL || API_URL.includes('YOUR_APPS_SCRIPT_URL');
 
   useEffect(() => {
     loadData();
-    const interval = setInterval(loadData, 3 * 60 * 1000); // Sync every 3 minutes
+    const interval = setInterval(loadData, 3 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
@@ -55,7 +60,6 @@ export default function App() {
     const today = new Date().toDateString();
     
     const todayVisits = customerList.filter(c => {
-      // Need a valid date string in used_date
       if (!c.used_date || c.status !== 'used') return false;
       try {
         const d = new Date(c.used_date);
@@ -89,7 +93,7 @@ export default function App() {
     setResult(null);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 400)); // Smooth UX
+      await new Promise(resolve => setTimeout(resolve, 400));
 
       const normalizedPhone = phoneNumber.slice(-10);
       const customer = customers.find(c => {
@@ -100,20 +104,23 @@ export default function App() {
       if (!customer) {
         setResult({
           type: 'new',
-          message: 'New Walk-In Customer',
+          message: 'New Customer',
+          subMessage: 'First time visit',
           phone: phoneNumber
         });
       } else if (customer.status === 'used') {
         setResult({
           type: 'returning',
           message: 'Returning Customer',
+          subMessage: 'Offer already redeemed',
           customer: customer,
           hadOffer: true
         });
       } else {
         setResult({
           type: 'valid',
-          message: 'Customer with Active Offer',
+          message: 'Active Offer',
+          subMessage: 'Campaign offer available',
           customer: customer
         });
       }
@@ -128,13 +135,19 @@ export default function App() {
     if (!result) return;
 
     setLoading(true);
-    console.log('Starting confirm visit...');
 
     try {
       if (isDemoMode) {
         await new Promise(resolve => setTimeout(resolve, 800));
-        alert(`✅ Walk-in recorded!\n\nCustomer: ${result.customer?.name || 'New Customer'}\nPhone: ${phoneNumber}\nBill: ₹${purchaseValue || '0'}`);
-        handleReset();
+        setSuccessData({
+          eventType: purchaseValue ? 'Purchase' : 'Visit',
+          amount: purchaseValue,
+          customerName: result.customer?.name || 'New Customer'
+        });
+        setTimeout(() => {
+          setSuccessData(null);
+          handleReset();
+        }, 2500);
         return;
       }
 
@@ -146,10 +159,6 @@ export default function App() {
         metaData: result.customer?.meta_data || '{}'
       };
 
-      console.log('Sending payload:', payload);
-
-      // We use text/plain to avoid CORS preflight issues with Google Apps Script
-      // Added credentials: 'omit' to prevent Google Auth redirects (302) which cause fetch errors
       const response = await fetch(API_URL, {
         method: 'POST',
         credentials: 'omit',
@@ -157,32 +166,32 @@ export default function App() {
         body: JSON.stringify(payload)
       });
 
-      // Crucial: Read as text first to handle potential HTML error pages from Google
       const textResponse = await response.text();
-      console.log('Raw response:', textResponse);
-
       let data;
       try {
         data = JSON.parse(textResponse);
       } catch (parseError) {
-        console.error('JSON Parse Error:', parseError);
-        throw new Error(`Server returned invalid response (likely an HTML error page). Check console for details.\n\nResponse preview: ${textResponse.substring(0, 100)}...`);
+        throw new Error(`Server returned invalid response.`);
       }
 
       if (data.success) {
         const eventType = purchaseValue ? 'Purchase' : 'Visit';
-        alert(`✅ Success!\n\nWalk-in recorded\nEvent: ${eventType}\n${purchaseValue ? `Amount: ₹${purchaseValue}` : 'No purchase value'}`);
-        
-        // Refresh data to get updated stats
-        await loadData();
-        handleReset();
+        setSuccessData({
+          eventType,
+          amount: purchaseValue,
+          customerName: result.customer?.name || 'New Customer'
+        });
+        loadData();
+        setTimeout(() => {
+          setSuccessData(null);
+          handleReset();
+        }, 2500);
       } else {
-        throw new Error(data.error || data.message || 'Unknown server error');
+        throw new Error(data.error || 'Unknown server error');
       }
 
     } catch (err: any) {
-      console.error('Confirm Visit Error:', err);
-      alert(`❌ Failed to record visit: ${err.message}`);
+      alert(`❌ Failed: ${err.message}`);
     } finally {
       setLoading(false);
     }
@@ -194,256 +203,226 @@ export default function App() {
     setResult(null);
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-slate-100 font-sans">
-      {/* Header */}
-      <div className="bg-white border-b border-slate-200 sticky top-0 z-10">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3 w-full sm:w-auto">
-              <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-md">
-                <Users className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-xl font-bold text-slate-900 tracking-tight">Walk-In Tracker</h1>
-                <p className="text-xs text-slate-500 font-medium">by Musaaz</p>
-              </div>
-            </div>
+  // --- ATTIO-INSPIRED COMPONENTS ---
 
-            {/* Stats Bar */}
-            <div className="flex items-center justify-between sm:justify-end gap-6 w-full sm:w-auto bg-slate-50 sm:bg-transparent p-3 sm:p-0 rounded-xl">
-              <div className="text-center min-w-[60px]">
-                <div className="text-2xl font-bold text-slate-900 leading-none">{stats.today}</div>
-                <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mt-1">Today</div>
-              </div>
-              <div className="w-px h-8 bg-slate-200"></div>
-              <div className="text-center min-w-[60px]">
-                <div className="text-2xl font-bold text-slate-900 leading-none">{stats.pending}</div>
-                <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mt-1">Active</div>
-              </div>
-              <div className="w-px h-8 bg-slate-200"></div>
-              <div className="text-center min-w-[60px]">
-                <div className="text-2xl font-bold text-slate-900 leading-none">{stats.total}</div>
-                <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mt-1">Total</div>
-              </div>
+  const StatItem = ({ label, value }: { label: string, value: number }) => (
+    <div className="flex flex-col">
+      <span className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-0.5">{label}</span>
+      <span className="text-sm font-semibold text-zinc-900">{value}</span>
+    </div>
+  );
+
+  const Divider = () => <div className="w-px h-8 bg-zinc-200 mx-4" />;
+
+  return (
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans selection:bg-zinc-200 flex flex-col">
+      {/* Header */}
+      <header className="bg-white border-b border-zinc-200 sticky top-0 z-20 h-16">
+        <div className="max-w-5xl mx-auto px-4 sm:px-6 h-full flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-zinc-900 rounded-lg flex items-center justify-center">
+              <Users className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <h1 className="text-sm font-semibold text-zinc-900 leading-tight">Musaaz Walk-In Tracker</h1>
+              <p className="text-[10px] text-zinc-400 font-medium">Workspace</p>
             </div>
           </div>
+
+          <div className="hidden sm:flex items-center bg-zinc-50 border border-zinc-200 rounded-lg px-4 py-1.5 shadow-sm">
+            <StatItem label="Today" value={stats.today} />
+            <Divider />
+            <StatItem label="Active" value={stats.pending} />
+            <Divider />
+            <StatItem label="Total" value={stats.total} />
+          </div>
+          
+          <div className="sm:hidden flex items-center gap-2">
+             <div className="bg-zinc-100 px-2 py-1 rounded text-xs font-medium">{stats.today} Today</div>
+          </div>
         </div>
-      </div>
+      </header>
 
       {/* Main Content */}
-      <div className="max-w-2xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-        {!result ? (
-          <div className="bg-white rounded-2xl shadow-xl border border-slate-200 overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
-            {/* Search Section */}
-            <div className="p-6 sm:p-8">
-              <div className="flex items-center gap-2 mb-6">
-                <div className="bg-blue-50 p-2 rounded-lg">
-                  <Search className="w-5 h-5 text-blue-600" />
+      <main className="flex-1 flex flex-col items-center justify-start pt-12 pb-12 px-4 sm:px-6">
+        
+        {/* Container */}
+        <div className="w-full max-w-lg transition-all duration-300 ease-in-out">
+          
+          {successData ? (
+             /* SUCCESS VIEW */
+             <div className="bg-white rounded-xl shadow-sm border border-zinc-200 p-12 flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
+                <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mb-6 ring-8 ring-green-50/50">
+                   <CheckCircle2 className="w-8 h-8 text-green-600" />
                 </div>
-                <h2 className="text-lg font-semibold text-slate-900">Search Customer</h2>
-              </div>
-
-              {/* Phone Input */}
-              <div className="mb-6">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Phone Number
-                </label>
-                <div className="relative group">
-                  <input
-                    type="tel"
-                    value={phoneNumber}
-                    onChange={handlePhoneChange}
-                    placeholder="Enter 10-digit mobile number"
-                    className="w-full px-4 py-4 text-xl border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all placeholder:text-slate-300 font-mono tracking-wide"
-                    autoFocus
-                  />
-                  <div className={`absolute right-4 top-1/2 -translate-y-1/2 transition-colors duration-300 ${phoneNumber.length === 10 ? 'text-green-500' : 'text-slate-300'}`}>
-                    <CheckCircle2 className="w-6 h-6" />
-                  </div>
-                </div>
-                <div className="mt-2 flex items-center justify-between text-xs">
-                   <span className="text-slate-500">Enter customer's registered mobile</span>
-                   <span className={`${phoneNumber.length === 10 ? 'text-green-600 font-medium' : 'text-slate-400'}`}>{phoneNumber.length}/10 digits</span>
-                </div>
-              </div>
-
-              {/* Purchase Value Input (Optional) */}
-              <div className="mb-8">
-                <label className="block text-sm font-semibold text-slate-700 mb-2">
-                  Purchase Amount <span className="text-slate-400 font-normal ml-1">(Optional)</span>
-                </label>
-                <div className="relative">
-                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 text-xl font-medium">₹</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={purchaseValue}
-                    onChange={handlePurchaseChange}
-                    placeholder="0"
-                    className="w-full pl-10 pr-4 py-3 text-lg border-2 border-slate-200 rounded-xl focus:border-blue-500 focus:outline-none focus:ring-4 focus:ring-blue-500/10 transition-all font-mono"
-                  />
-                </div>
-              </div>
-
-              {/* Search Button */}
-              <button
-                onClick={searchCustomer}
-                disabled={phoneNumber.length !== 10 || loading}
-                className={`w-full py-4 rounded-xl font-bold text-lg text-white transition-all flex items-center justify-center gap-2 ${
-                  phoneNumber.length === 10 && !loading
-                    ? 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 shadow-lg shadow-blue-500/30 hover:shadow-xl hover:scale-[1.02] active:scale-[0.98]'
-                    : 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                }`}
-              >
-                {loading ? (
-                  <>
-                    <Loader2 className="w-6 h-6 animate-spin" />
-                    <span>Searching...</span>
-                  </>
-                ) : (
-                  <>
-                    <Search className="w-6 h-6" />
-                    <span>Search Customer</span>
-                  </>
+                <h2 className="text-xl font-semibold text-zinc-900 mb-1">{successData.eventType} Recorded</h2>
+                <p className="text-zinc-500 text-sm mb-6">{successData.customerName}</p>
+                
+                {Number(successData.amount) > 0 && (
+                   <div className="bg-zinc-50 border border-zinc-100 rounded-lg px-6 py-3">
+                      <span className="text-xs text-zinc-400 uppercase tracking-wide font-medium block mb-1">Total Amount</span>
+                      <span className="text-2xl font-semibold text-zinc-900 tracking-tight">₹{successData.amount}</span>
+                   </div>
                 )}
-              </button>
-            </div>
+             </div>
 
-            {/* Footer Info */}
-            <div className="bg-slate-50/80 px-8 py-4 border-t border-slate-200 backdrop-blur-sm">
-              <div className="flex items-center justify-between text-xs font-medium text-slate-500">
-                <div className="flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5" />
-                  Last sync: {lastSync ? lastSync.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) : 'Never'}
+          ) : !result ? (
+            /* SEARCH VIEW */
+            <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden">
+              <div className="p-1">
+                <div className="bg-zinc-50/50 p-6 sm:p-8 border-b border-zinc-100">
+                   <h2 className="text-lg font-semibold text-zinc-900 mb-1">Customer Check-in</h2>
+                   <p className="text-sm text-zinc-500">Search for a customer by their phone number to verify offers.</p>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-green-500"></span>
-                  {customers.length} customers
-                </div>
-              </div>
-            </div>
-          </div>
-        ) : (
-          /* Result Card */
-          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-8 duration-500">
-            {/* Status Card */}
-            <div className={`rounded-2xl shadow-xl border overflow-hidden ${
-              result.type === 'valid' 
-                ? 'bg-gradient-to-br from-white to-green-50/50 border-green-200 shadow-green-100' 
-                : result.type === 'returning'
-                ? 'bg-gradient-to-br from-white to-blue-50/50 border-blue-200 shadow-blue-100'
-                : 'bg-gradient-to-br from-white to-slate-50/50 border-slate-200 shadow-slate-100'
-            }`}>
-              <div className="p-6 sm:p-8">
-                <div className="flex items-start justify-between mb-8">
-                  <div className="flex items-center gap-4">
-                    {result.type === 'valid' ? (
-                      <div className="w-14 h-14 bg-green-500 rounded-2xl flex items-center justify-center shadow-lg shadow-green-500/30">
-                        <BadgeCheck className="w-8 h-8 text-white" />
-                      </div>
-                    ) : result.type === 'returning' ? (
-                      <div className="w-14 h-14 bg-blue-500 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/30">
-                        <TrendingUp className="w-8 h-8 text-white" />
-                      </div>
-                    ) : (
-                      <div className="w-14 h-14 bg-slate-400 rounded-2xl flex items-center justify-center shadow-lg shadow-slate-400/30">
-                        <Users className="w-8 h-8 text-white" />
-                      </div>
-                    )}
-                    <div>
-                      <h3 className={`text-2xl font-bold ${
-                        result.type === 'valid' ? 'text-green-700' :
-                        result.type === 'returning' ? 'text-blue-700' : 'text-slate-700'
-                      }`}>{result.message}</h3>
-                      <p className="text-sm text-slate-500 font-medium mt-1">
-                        {result.type === 'valid' && 'Campaign offer available'}
-                        {result.type === 'returning' && 'Welcome back!'}
-                        {result.type === 'new' && 'First visit recorded'}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Customer Details */}
-                <div className="grid gap-4 mb-8">
-                  <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm flex flex-col">
-                    <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-1">Customer Name</span>
-                    <span className="text-xl font-bold text-slate-800">
-                      {result.customer?.name || 'New Customer'}
-                    </span>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm flex flex-col">
-                      <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-1">Phone</span>
-                      <span className="text-lg font-mono font-semibold text-slate-800">
-                        {phoneNumber}
-                      </span>
-                    </div>
-
-                    {purchaseValue && (
-                      <div className="bg-white rounded-xl p-4 border border-slate-100 shadow-sm flex flex-col">
-                        <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-1">Amount</span>
-                        <span className="text-lg font-bold text-green-600">
-                          ₹{purchaseValue}
+                
+                <div className="p-6 sm:p-8 space-y-6">
+                  {/* Phone Input */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider flex justify-between">
+                      <span>Phone Number</span>
+                      {phoneNumber.length > 0 && (
+                        <span className={phoneNumber.length === 10 ? 'text-green-600' : 'text-zinc-400'}>
+                          {phoneNumber.length} / 10
                         </span>
+                      )}
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="tel"
+                        value={phoneNumber}
+                        onChange={handlePhoneChange}
+                        placeholder="Search phone..."
+                        className="w-full pl-4 pr-10 py-3 bg-white border border-zinc-200 rounded-lg text-lg text-zinc-900 placeholder:text-zinc-300 focus:outline-none focus:border-zinc-400 focus:ring-4 focus:ring-zinc-100 transition-all font-mono tracking-tight"
+                        autoFocus
+                      />
+                      <div className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 pointer-events-none">
+                        {phoneNumber.length === 10 ? <CheckCircle2 className="w-5 h-5 text-green-500" /> : <Search className="w-5 h-5" />}
                       </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* Info Banners */}
-                {result.type === 'valid' && (
-                  <div className="mb-8 bg-green-50 border border-green-100 rounded-xl p-4 flex gap-3">
-                    <AlertCircle className="w-5 h-5 text-green-600 flex-shrink-0 mt-0.5" />
-                    <div className="text-sm text-green-800 leading-relaxed">
-                      <strong>Valid Offer:</strong> This customer originated from the Meta campaign. 
-                      Please apply the standard discount.
                     </div>
                   </div>
-                )}
 
-                {/* Action Buttons */}
-                <div className="flex flex-col-reverse sm:flex-row gap-3">
+                  {/* Amount Input */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-zinc-500 uppercase tracking-wider">
+                      Purchase Amount <span className="text-zinc-300 font-normal ml-1">(Optional)</span>
+                    </label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-zinc-400 font-serif">₹</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={purchaseValue}
+                        onChange={handlePurchaseChange}
+                        placeholder="0.00"
+                        className="w-full pl-9 pr-4 py-3 bg-white border border-zinc-200 rounded-lg text-lg text-zinc-900 placeholder:text-zinc-300 focus:outline-none focus:border-zinc-400 focus:ring-4 focus:ring-zinc-100 transition-all font-mono"
+                      />
+                    </div>
+                  </div>
+
                   <button
-                    onClick={handleReset}
-                    className="px-6 py-4 rounded-xl font-bold text-slate-600 bg-white border-2 border-slate-200 hover:bg-slate-50 hover:border-slate-300 transition-all"
+                    onClick={searchCustomer}
+                    disabled={phoneNumber.length !== 10 || loading}
+                    className="w-full flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-100 disabled:text-zinc-300 text-white font-medium py-3 rounded-lg transition-all shadow-sm active:scale-[0.99]"
                   >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={confirmVisit}
-                    disabled={loading}
-                    className="flex-1 bg-slate-900 hover:bg-slate-800 text-white py-4 rounded-xl font-bold shadow-xl shadow-slate-900/10 hover:shadow-2xl hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50 disabled:scale-100 flex items-center justify-center gap-2"
-                  >
-                    {loading ? (
-                      <>
-                        <Loader2 className="w-5 h-5 animate-spin" />
-                        Recording...
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle2 className="w-5 h-5" />
-                        Confirm Visit
-                      </>
-                    )}
+                    {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Find Customer</span>}
+                    {!loading && <ArrowRight className="w-4 h-4 opacity-50" />}
                   </button>
                 </div>
               </div>
+              <div className="bg-zinc-50 px-6 py-3 border-t border-zinc-200 flex items-center justify-between text-xs text-zinc-400">
+                 <div className="flex items-center gap-2">
+                   <div className="w-2 h-2 rounded-full bg-green-500"></div>
+                   <span>System Operational</span>
+                 </div>
+                 <span>Last synced {lastSync ? lastSync.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '--:--'}</span>
+              </div>
             </div>
-          </div>
-        )}
-      </div>
+          ) : (
+            /* RESULT VIEW */
+            <div className="bg-white rounded-xl shadow-sm border border-zinc-200 overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
+              
+              {/* Header Status */}
+              <div className={`px-6 py-6 border-b border-zinc-100 flex items-start justify-between ${
+                 result.type === 'valid' ? 'bg-green-50/30' : 
+                 result.type === 'returning' ? 'bg-blue-50/30' : 'bg-zinc-50/50'
+              }`}>
+                 <div>
+                    <div className="flex items-center gap-2 mb-1">
+                       {result.type === 'valid' && <BadgeCheck className="w-5 h-5 text-green-600" />}
+                       {result.type === 'returning' && <TrendingUp className="w-5 h-5 text-blue-600" />}
+                       {result.type === 'new' && <UserCheck className="w-5 h-5 text-zinc-500" />}
+                       <h2 className={`text-lg font-semibold ${
+                          result.type === 'valid' ? 'text-green-700' : 
+                          result.type === 'returning' ? 'text-blue-700' : 'text-zinc-700'
+                       }`}>{result.message}</h2>
+                    </div>
+                    <p className="text-sm text-zinc-500">{result.subMessage}</p>
+                 </div>
+                 
+                 {/* Badge */}
+                 <div className={`px-2.5 py-1 rounded-md text-xs font-medium border ${
+                    result.type === 'valid' ? 'bg-green-100 text-green-700 border-green-200' : 
+                    result.type === 'returning' ? 'bg-blue-100 text-blue-700 border-blue-200' : 
+                    'bg-zinc-100 text-zinc-600 border-zinc-200'
+                 }`}>
+                    {result.type === 'valid' ? 'ACTIVE' : result.type === 'returning' ? 'RETURNING' : 'NEW'}
+                 </div>
+              </div>
 
-      {/* Demo Mode Banner */}
-      {isDemoMode && (
-        <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 bg-amber-100 border border-amber-200 text-amber-800 px-6 py-3 rounded-full shadow-lg z-50">
-          <div className="flex items-center gap-2">
-            <AlertCircle className="w-4 h-4" />
-            <span className="font-semibold text-sm">Demo Mode Active</span>
-          </div>
+              <div className="p-6 space-y-6">
+                 {/* Customer Info Grid */}
+                 <div className="grid grid-cols-2 gap-4">
+                    <div className="col-span-2 bg-zinc-50 border border-zinc-100 rounded-lg p-3">
+                       <label className="text-[10px] uppercase text-zinc-400 font-semibold tracking-wide block mb-1">Customer Name</label>
+                       <div className="text-base font-medium text-zinc-900">{result.customer?.name || 'New Customer'}</div>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-100 rounded-lg p-3">
+                       <label className="text-[10px] uppercase text-zinc-400 font-semibold tracking-wide block mb-1">Phone</label>
+                       <div className="text-base font-mono text-zinc-900">{phoneNumber}</div>
+                    </div>
+                    <div className="bg-zinc-50 border border-zinc-100 rounded-lg p-3">
+                       <label className="text-[10px] uppercase text-zinc-400 font-semibold tracking-wide block mb-1">Bill Amount</label>
+                       <div className="text-base font-mono text-zinc-900">{purchaseValue ? `₹${purchaseValue}` : '-'}</div>
+                    </div>
+                 </div>
+
+                 {result.type === 'valid' && (
+                    <div className="flex gap-3 items-start p-3 bg-green-50 rounded-lg border border-green-100">
+                       <AlertCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                       <p className="text-xs text-green-800 leading-relaxed">
+                          This customer has a valid campaign offer. Apply discount according to current campaign rules.
+                       </p>
+                    </div>
+                 )}
+
+                 <div className="flex items-center gap-3 pt-2">
+                    <button 
+                       onClick={handleReset}
+                       className="px-5 py-2.5 rounded-lg border border-zinc-200 text-zinc-600 font-medium text-sm hover:bg-zinc-50 transition-colors"
+                    >
+                       Cancel
+                    </button>
+                    <button 
+                       onClick={confirmVisit}
+                       disabled={loading}
+                       className="flex-1 px-5 py-2.5 rounded-lg bg-zinc-900 text-white font-medium text-sm hover:bg-zinc-800 transition-all shadow-sm flex items-center justify-center gap-2 active:scale-[0.99]"
+                    >
+                       {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                       Confirm Check-in
+                    </button>
+                 </div>
+              </div>
+            </div>
+          )}
         </div>
+      </main>
+
+      {/* Demo Banner */}
+      {isDemoMode && (
+         <div className="fixed bottom-4 right-4 bg-amber-50 border border-amber-200 shadow-sm rounded-lg px-3 py-2 z-50 flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></div>
+            <span className="text-xs font-medium text-amber-900">Demo Mode</span>
+         </div>
       )}
     </div>
   );
