@@ -84,8 +84,8 @@ function getAllData() {
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     
     // 1. Get VISITS (Used offers)
-    // Visits Tab: Phone is in Column A (Index 0)
-    let visitsSet = new Set(); 
+    // Visits Tab: Phone is in Column A (Index 0), Date is in Column E (Index 4)
+    let visitsMap = new Map(); 
     let visitsSheet = ss.getSheetByName(TAB_VISITS);
     
     if (visitsSheet && visitsSheet.getLastRow() > 1) {
@@ -93,7 +93,8 @@ function getAllData() {
       for (let i = 1; i < visitData.length; i++) {
         // Normalize visited phone numbers
         const p = String(visitData[i][0]).replace(/\D/g, ''); 
-        if (p) visitsSet.add(p);
+        const d = visitData[i][4]; // Column E has the Date
+        if (p) visitsMap.set(p, d);
       }
     }
 
@@ -144,7 +145,8 @@ function getAllData() {
       processedPhones.add(phone);
 
       // Check if this person has visited
-      const isUsed = visitsSet.has(phone);
+      const isUsed = visitsMap.has(phone);
+      const usedDate = isUsed ? visitsMap.get(phone) : '';
 
       // Gather Metadata (Campaign info, etc)
       const metaObj = {};
@@ -166,7 +168,7 @@ function getAllData() {
         lead_id: colLeadId !== -1 ? row[colLeadId] : '',
         meta_data: JSON.stringify(metaObj),
         created_date: '', 
-        used_date: isUsed ? 'Previously' : ''
+        used_date: usedDate // Return actual date object or string
       });
     }
 
