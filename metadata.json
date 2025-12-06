@@ -1,0 +1,5 @@
+{
+  "name": "Restaurant Offer Verifier",
+  "description": "Tablet-based verification system for restaurant offers with offline support.",
+  "requestFramePermissions": []
+}
