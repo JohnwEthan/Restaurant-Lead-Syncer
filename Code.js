@@ -45,14 +45,21 @@ function doGet(e) {
 function doPost(e) {
   try {
     let payload;
-    if (e.postData && e.postData.contents) {
-       payload = JSON.parse(e.postData.contents);
-    } else if (e.parameter) {
-       payload = e.parameter;
+    
+    // Robust payload parsing
+    try {
+      if (e && e.postData && e.postData.contents) {
+        payload = JSON.parse(e.postData.contents);
+      } else if (e && e.parameter) {
+        payload = e.parameter;
+      }
+    } catch (jsonErr) {
+      return ContentService.createTextOutput(JSON.stringify({ success: false, error: "Invalid JSON payload: " + jsonErr.toString() }))
+         .setMimeType(ContentService.MimeType.JSON);
     }
 
     if (!payload) {
-       return ContentService.createTextOutput(JSON.stringify({ success: false, error: "No payload received" }))
+       return ContentService.createTextOutput(JSON.stringify({ success: false, error: "No payload received (e.postData was empty)" }))
          .setMimeType(ContentService.MimeType.JSON);
     }
 
@@ -68,7 +75,8 @@ function doPost(e) {
       .setMimeType(ContentService.MimeType.JSON);
 
   } catch (err) {
-    return ContentService.createTextOutput(JSON.stringify({ success: false, error: err.toString() }))
+    // Critical: Always return JSON even on system crash
+    return ContentService.createTextOutput(JSON.stringify({ success: false, error: "System Error: " + err.toString() }))
       .setMimeType(ContentService.MimeType.JSON);
   }
 }
@@ -181,7 +189,11 @@ function getAllData() {
 function markAsUsed(phoneNumber, purchaseValue, eventId, leadId, metaData) {
   const lock = LockService.getScriptLock();
   try {
-    lock.waitLock(10000); 
+    const hasLock = lock.tryLock(10000); // Try to get lock for 10s
+    
+    if (!hasLock) {
+       throw new Error("Server is busy. Please try again in a few seconds.");
+    }
 
     const ss = SpreadsheetApp.openById(SPREADSHEET_ID);
     let visitsSheet = ss.getSheetByName(TAB_VISITS);
@@ -189,15 +201,10 @@ function markAsUsed(phoneNumber, purchaseValue, eventId, leadId, metaData) {
     
     const targetPhone = String(phoneNumber).replace(/\D/g, '');
     
-    // Check duplicates in Visits sheet (Column A)
-    const existing = visitsSheet.getDataRange().getValues();
-    for(let i=1; i<existing.length; i++) {
-       if (String(existing[i][0]).replace(/\D/g, '') === targetPhone) {
-         // Already recorded, but return true so UI shows success
-         return true; 
-       }
-    }
-
+    // --- DUPLICATE CHECK REMOVED ---
+    // We want to record every visit, even if returning.
+    // Tracking Footfall = Total Visits
+    
     const today = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd HH:mm:ss");
     const isPurchase = purchaseValue && Number(purchaseValue) > 0;
     const eventName = isPurchase ? 'Purchase' : 'Contact';
@@ -233,7 +240,7 @@ function markAsUsed(phoneNumber, purchaseValue, eventId, leadId, metaData) {
 
   } catch (e) {
     Logger.log("Error: " + e.toString());
-    return false;
+    throw e; // Re-throw to be caught by doPost
   } finally {
     lock.releaseLock();
   }

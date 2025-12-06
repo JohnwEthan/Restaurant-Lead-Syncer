@@ -29,7 +29,7 @@ export default function App() {
     }
 
     try {
-      const response = await fetch(`${API_URL}?action=getData`);
+      const response = await fetch(`${API_URL}?action=getData`, { credentials: 'omit' });
       const data = await response.json();
       
       if (data.error) throw new Error(data.error);
@@ -128,6 +128,7 @@ export default function App() {
     if (!result) return;
 
     setLoading(true);
+    console.log('Starting confirm visit...');
 
     try {
       if (isDemoMode) {
@@ -145,16 +146,30 @@ export default function App() {
         metaData: result.customer?.meta_data || '{}'
       };
 
+      console.log('Sending payload:', payload);
+
+      // We use text/plain to avoid CORS preflight issues with Google Apps Script
+      // Added credentials: 'omit' to prevent Google Auth redirects (302) which cause fetch errors
       const response = await fetch(API_URL, {
         method: 'POST',
+        credentials: 'omit',
         headers: { 'Content-Type': 'text/plain' },
         body: JSON.stringify(payload)
       });
 
-      const data = await response.json();
+      // Crucial: Read as text first to handle potential HTML error pages from Google
+      const textResponse = await response.text();
+      console.log('Raw response:', textResponse);
+
+      let data;
+      try {
+        data = JSON.parse(textResponse);
+      } catch (parseError) {
+        console.error('JSON Parse Error:', parseError);
+        throw new Error(`Server returned invalid response (likely an HTML error page). Check console for details.\n\nResponse preview: ${textResponse.substring(0, 100)}...`);
+      }
 
       if (data.success) {
-        // Optimistic update for stats
         const eventType = purchaseValue ? 'Purchase' : 'Visit';
         alert(`✅ Success!\n\nWalk-in recorded\nEvent: ${eventType}\n${purchaseValue ? `Amount: ₹${purchaseValue}` : 'No purchase value'}`);
         
@@ -162,10 +177,12 @@ export default function App() {
         await loadData();
         handleReset();
       } else {
-        throw new Error(data.message || 'Failed to record visit');
+        throw new Error(data.error || data.message || 'Unknown server error');
       }
+
     } catch (err: any) {
-      alert(`❌ Error: ${err.message}`);
+      console.error('Confirm Visit Error:', err);
+      alert(`❌ Failed to record visit: ${err.message}`);
     } finally {
       setLoading(false);
     }
